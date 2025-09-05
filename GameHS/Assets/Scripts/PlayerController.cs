@@ -9,8 +9,6 @@ public class PlayerController : MonoBehaviour
     
     [Header("Camera Settings")]
     public float mouseSensitivity = 60f;
-    public float cameraDistance = 20f;
-    public float cameraHeight = 8f;
     
     [Header("References")]
     public Camera playerCamera;
@@ -18,7 +16,7 @@ public class PlayerController : MonoBehaviour
     
     [Header("Physics")]
     public LayerMask groundLayer = -1;
-    public float groundCheckDistance = 5f;
+    public float groundCheckDistance = 3f;
     public float playerRadius = 1f;
     
     private Vector3 velocity;
@@ -26,7 +24,6 @@ public class PlayerController : MonoBehaviour
     private float yaw, pitch;
     private Vector3 planetCenter;
     private float planetRadius;
-    private bool isFirstPerson = false;
     private Rigidbody rb;
     private CapsuleCollider playerCollider;
     
@@ -77,7 +74,15 @@ public class PlayerController : MonoBehaviour
         Vector3 spawnPos = planetCenter + Vector3.up * (planetRadius + 20f);
         transform.position = spawnPos;
         
-        Debug.Log($"🚀 Player spawned with physics at: {spawnPos}");
+        // Setup first person camera
+        if (playerCamera != null)
+        {
+            playerCamera.transform.SetParent(transform);
+            playerCamera.transform.localPosition = Vector3.up * 1.8f; // Eye level
+            playerCamera.transform.localRotation = Quaternion.identity;
+        }
+        
+        Debug.Log($"🚀 Player spawned with spherical gravity at: {spawnPos}");
     }
     
     private void Update()
@@ -85,13 +90,13 @@ public class PlayerController : MonoBehaviour
         HandleInput();
         HandleMouseLook();
         CheckGroundContact();
-        UpdateCamera();
+        AlignToGravity();
     }
     
     private void FixedUpdate()
     {
         ApplyMovement();
-        ApplyGravity();
+        ApplySphericalGravity();
         PreventPlanetClipping();
     }
     
@@ -112,12 +117,6 @@ public class PlayerController : MonoBehaviour
             Input.GetAxis("Mouse Y")
         );
         
-        // Camera toggle
-        if (Input.GetKeyDown(KeyCode.F2))
-        {
-            ToggleCameraMode();
-        }
-        
         // Debug toggle
         if (Input.GetKeyDown(KeyCode.F1))
         {
@@ -137,17 +136,31 @@ public class PlayerController : MonoBehaviour
         yaw += mouseInput.x * mouseSensitivity * Time.deltaTime;
         pitch -= mouseInput.y * mouseSensitivity * Time.deltaTime;
         pitch = Mathf.Clamp(pitch, -89f, 89f);
+        
+        // Apply rotation to camera only (first person)
+        if (playerCamera != null)
+        {
+            playerCamera.transform.localRotation = Quaternion.Euler(pitch, yaw, 0f);
+        }
     }
     
     private void ApplyMovement()
     {
         if (moveInput.magnitude > 0.1f)
         {
-            // Calculate movement direction relative to camera yaw
-            Vector3 forward = new Vector3(Mathf.Sin(yaw * Mathf.Deg2Rad), 0, -Mathf.Cos(yaw * Mathf.Deg2Rad));
-            Vector3 right = new Vector3(Mathf.Cos(yaw * Mathf.Deg2Rad), 0, Mathf.Sin(yaw * Mathf.Deg2Rad));
+            // Get the up direction relative to planet
+            Vector3 upDirection = GetUpDirection();
             
-            Vector3 moveDirection = (forward * moveInput.y + right * moveInput.x).normalized;
+            // Get camera forward and right directions relative to planet surface
+            Vector3 cameraForward = playerCamera.transform.forward;
+            Vector3 cameraRight = playerCamera.transform.right;
+            
+            // Project camera directions onto the planet surface (perpendicular to up)
+            Vector3 moveForward = Vector3.ProjectOnPlane(cameraForward, upDirection).normalized;
+            Vector3 moveRight = Vector3.ProjectOnPlane(cameraRight, upDirection).normalized;
+            
+            // Calculate movement direction
+            Vector3 moveDirection = (moveForward * moveInput.y + moveRight * moveInput.x).normalized;
             
             // Apply movement force to rigidbody
             rb.AddForce(moveDirection * moveSpeed * Time.fixedDeltaTime, ForceMode.VelocityChange);
@@ -163,30 +176,43 @@ public class PlayerController : MonoBehaviour
         }
     }
     
-    private void ApplyGravity()
+    private void ApplySphericalGravity()
     {
+        // Calculate gravity direction (toward planet center)
         Vector3 gravityDirection = (planetCenter - transform.position).normalized;
+        
+        // Apply gravity force
         rb.AddForce(gravityDirection * gravityStrength * Time.fixedDeltaTime, ForceMode.Acceleration);
+    }
+    
+    private void AlignToGravity()
+    {
+        // Get the up direction (away from planet center)
+        Vector3 targetUp = GetUpDirection();
+        
+        // Smoothly rotate the player to align with gravity
+        Quaternion targetRotation = Quaternion.FromToRotation(transform.up, targetUp) * transform.rotation;
+        transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * 5f);
     }
     
     private void CheckGroundContact()
     {
-        // Raycast downward to check for ground
-        Vector3 rayStart = transform.position + Vector3.up * 0.5f;
-        Vector3 rayDirection = (planetCenter - transform.position).normalized;
+        // Get the down direction (toward planet center)
+        Vector3 downDirection = (planetCenter - transform.position).normalized;
+        Vector3 rayStart = transform.position + GetUpDirection() * 0.5f;
         
         RaycastHit hit;
-        if (Physics.Raycast(rayStart, rayDirection, out hit, groundCheckDistance, groundLayer))
+        if (Physics.Raycast(rayStart, downDirection, out hit, groundCheckDistance, groundLayer))
         {
-            isGrounded = hit.distance < 2f;
+            isGrounded = hit.distance < 2.5f;
             
             // Debug ray
-            Debug.DrawRay(rayStart, rayDirection * groundCheckDistance, isGrounded ? Color.green : Color.red);
+            Debug.DrawRay(rayStart, downDirection * groundCheckDistance, isGrounded ? Color.green : Color.red);
         }
         else
         {
             isGrounded = false;
-            Debug.DrawRay(rayStart, rayDirection * groundCheckDistance, Color.red);
+            Debug.DrawRay(rayStart, downDirection * groundCheckDistance, Color.red);
         }
     }
     
@@ -215,43 +241,9 @@ public class PlayerController : MonoBehaviour
         }
     }
     
-    private void UpdateCamera()
-    {
-        Vector3 upDirection = GetUpDirection();
-        Vector3 backDirection = new Vector3(-Mathf.Sin(yaw * Mathf.Deg2Rad), 0, Mathf.Cos(yaw * Mathf.Deg2Rad));
-        
-        if (isFirstPerson)
-        {
-            // First person camera
-            playerCamera.transform.position = transform.position + upDirection * 2f;
-            Vector3 lookDirection = new Vector3(Mathf.Sin(yaw * Mathf.Deg2Rad), 0, -Mathf.Cos(yaw * Mathf.Deg2Rad));
-            playerCamera.transform.LookAt(transform.position + lookDirection, upDirection);
-        }
-        else
-        {
-            // Third person camera
-            Vector3 cameraPos = transform.position + backDirection * cameraDistance + upDirection * cameraHeight;
-            playerCamera.transform.position = cameraPos;
-            playerCamera.transform.LookAt(transform.position, upDirection);
-        }
-    }
-    
     private Vector3 GetUpDirection()
     {
         return (transform.position - planetCenter).normalized;
-    }
-    
-    private void ToggleCameraMode()
-    {
-        isFirstPerson = !isFirstPerson;
-        
-        // Show/hide player visual
-        if (playerVisual != null)
-        {
-            playerVisual.gameObject.SetActive(!isFirstPerson);
-        }
-        
-        Debug.Log($"📹 Camera mode: {(isFirstPerson ? "First Person" : "Third Person")}");
     }
     
     // Public methods for debug display

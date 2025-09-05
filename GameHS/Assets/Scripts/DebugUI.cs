@@ -38,7 +38,7 @@ public class DebugUI : MonoBehaviour
         panelRect.anchorMax = new Vector2(0, 1);
         panelRect.pivot = new Vector2(0, 1);
         panelRect.anchoredPosition = new Vector2(10, -10);
-        panelRect.sizeDelta = new Vector2(400, 200);
+        panelRect.sizeDelta = new Vector2(450, 220);
         
         // Create debug text
         GameObject textObject = new GameObject("Debug Text");
@@ -73,14 +73,21 @@ public class DebugUI : MonoBehaviour
         bool grounded = player.IsGrounded();
         float fps = 1f / Time.deltaTime;
         
-        string debugInfo = $"Position: ({pos.x:F0}, {pos.y:F0}, {pos.z:F0})\n" +
+        // Calculate surface height (distance above planet surface)
+        float surfaceHeight = distanceFromCenter - FindObjectOfType<GameManager>().PlanetRadius;
+        
+        string debugInfo = $"=== SPHERICAL PLANET GAME ===\n" +
+                          $"Position: ({pos.x:F0}, {pos.y:F0}, {pos.z:F0})\n" +
                           $"Distance from center: {distanceFromCenter:F1}\n" +
+                          $"Height above surface: {surfaceHeight:F1}\n" +
                           $"Planet radius: {FindObjectOfType<GameManager>().PlanetRadius:F0}\n" +
                           $"Grounded: {grounded} | FPS: {fps:F1}\n" +
                           $"Move speed: {player.moveSpeed:F0} | Jump: {player.jumpForce:F0}\n" +
                           $"Velocity: {vel.magnitude:F1}\n" +
-                          $"Camera: Third Person\n" +
-                          $"World: 1000×1000×1000 units";
+                          $"Camera: First Person\n" +
+                          $"Gravity: Spherical (toward planet center)\n" +
+                          $"World: 1000×1000×1000 units\n" +
+                          $"Controls: WASD + Mouse + Space";
         
         debugText.text = debugInfo;
     }
