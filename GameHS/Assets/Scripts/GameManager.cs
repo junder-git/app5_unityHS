@@ -90,9 +90,17 @@ public class GameManager : MonoBehaviour
         sun.intensity = 1.2f;
         sunObject.transform.rotation = Quaternion.Euler(45f, -45f, 0f);
         
-        // Setup camera
-        Camera.main.farClipPlane = 3000f;
-        Camera.main.fieldOfView = 75f;
+        // Setup camera (find any camera in scene since Camera.main might be null)
+        Camera sceneCamera = FindObjectOfType<Camera>();
+        if (sceneCamera != null)
+        {
+            sceneCamera.farClipPlane = 3000f;
+            sceneCamera.fieldOfView = 75f;
+        }
+        else
+        {
+            Debug.LogWarning("⚠️ No camera found in scene - camera settings skipped");
+        }
         
         Debug.Log("✅ Scene setup complete");
     }
