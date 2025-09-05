@@ -12,10 +12,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 43a12f3de2822f54eabf2ae08a4efd38, type: 3}
   m_Name: PlanetGenerator
   m_EditorClassIdentifier: Assembly-CSharp::PlanetGenerator
-  radius: 4000
+  radius: 40000
   resolution: 64
   noiseScale: 0.15
   noiseOctaves: 3
   terrainHeightScale: 5
   worldCenter: {x: 5000, y: 5000, z: 5000}
-  worldSize: 10000
+  worldSize: 100000
