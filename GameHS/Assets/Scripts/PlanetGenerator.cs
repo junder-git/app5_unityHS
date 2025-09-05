@@ -1,6 +1,4 @@
 using UnityEngine;
-using Unity.Collections;
-using Unity.Mathematics;
 using System.Collections.Generic;
 
 [CreateAssetMenu(fileName = "PlanetGenerator", menuName = "Planet/Generator")]
@@ -19,15 +17,26 @@ public class PlanetGenerator : ScriptableObject
     
     private float voxelSize => worldSize / resolution;
     
+    /// <summary>
+    /// Generate planet data including mesh vertices, triangles, and normals
+    /// </summary>
     public PlanetData GeneratePlanet()
     {
-        Debug.Log("🌍 Generating planet mesh...");
+        Debug.Log("🌍 Starting planet generation...");
+        Debug.Log($"  - Planet radius: {radius}");
+        Debug.Log($"  - Resolution: {resolution}³ = {resolution * resolution * resolution:N0} voxels");
+        Debug.Log($"  - World center: {worldCenter}");
+        Debug.Log($"  - Voxel size: {voxelSize:F2}");
         
         // Create signed distance field
         var sdf = GenerateSignedDistanceField();
         
-        // Run marching cubes (Unity's built-in or custom implementation)
-        var meshData = MarchingCubes(sdf);
+        // Run custom marching cubes (correct method call - 2 parameters)
+        var meshData = MarchingCubes.GenerateMesh(sdf, voxelSize);
+        
+        Debug.Log($"✅ Planet generation complete!");
+        Debug.Log($"  - Generated {meshData.vertices.Length:N0} vertices");
+        Debug.Log($"  - Generated {meshData.triangles.Length / 3:N0} triangles");
         
         return new PlanetData
         {
@@ -39,10 +48,17 @@ public class PlanetGenerator : ScriptableObject
         };
     }
     
+    /// <summary>
+    /// Generate 3D signed distance field for the planet
+    /// </summary>
     private float[,,] GenerateSignedDistanceField()
     {
         var sdf = new float[resolution, resolution, resolution];
-        int surfaceCrossings = 0; // Count how many voxels cross the surface
+        int surfaceCrossings = 0; // Count voxels near surface for debugging
+        int insideCount = 0;
+        int outsideCount = 0;
+        
+        Debug.Log("🔄 Generating signed distance field...");
         
         for (int x = 0; x < resolution; x++)
         {
@@ -58,13 +74,21 @@ public class PlanetGenerator : ScriptableObject
                     
                     float distance = Vector3.Distance(worldPos, worldCenter);
                     
-                    // Add procedural noise
+                    // Add procedural noise for terrain variation
                     float noiseValue = GenerateNoise(worldPos);
                     
                     // Create signed distance field
                     // Positive = inside planet, Negative = outside planet
-                    float sdfValue = (radius + noiseValue * terrainHeightScale) - distance;
+                    float effectiveRadius = radius + noiseValue * terrainHeightScale;
+                    float sdfValue = effectiveRadius - distance;
+                    
                     sdf[x, y, z] = sdfValue;
+                    
+                    // Count for debugging
+                    if (sdfValue > 0)
+                        insideCount++;
+                    else
+                        outsideCount++;
                     
                     // Count surface crossings for debugging
                     if (Mathf.Abs(sdfValue) < voxelSize * 2f)
@@ -75,80 +99,81 @@ public class PlanetGenerator : ScriptableObject
             }
         }
         
-        Debug.Log($"🔧 SDF Generation Complete:");
-        Debug.Log($"  - Voxel size: {voxelSize:F2}");
-        Debug.Log($"  - World center: {worldCenter}");
-        Debug.Log($"  - Planet radius: {radius}");
-        Debug.Log($"  - Surface crossings: {surfaceCrossings} voxels");
+        Debug.Log($"📊 SDF Statistics:");
+        Debug.Log($"  - Inside voxels: {insideCount:N0}");
+        Debug.Log($"  - Outside voxels: {outsideCount:N0}");
+        Debug.Log($"  - Surface crossings: {surfaceCrossings:N0}");
+        Debug.Log($"  - Surface ratio: {(float)surfaceCrossings / (resolution * resolution * resolution) * 100f:F1}%");
+        
+        if (surfaceCrossings == 0)
+        {
+            Debug.LogWarning("⚠️ No surface crossings detected! Planet may be too small or too large for the voxel grid.");
+            Debug.LogWarning($"   Try adjusting: Radius={radius}, WorldSize={worldSize}, Resolution={resolution}");
+        }
         
         return sdf;
     }
     
+    /// <summary>
+    /// Generate procedural noise for terrain variation
+    /// </summary>
     private float GenerateNoise(Vector3 position)
     {
-        // Unity's Perlin noise equivalent to Python's noise library
-        Vector3 normalized = (position - worldCenter).normalized;
+        // Normalize position relative to planet center for consistent noise
+        Vector3 normalized = (position - worldCenter);
+        float distance = normalized.magnitude;
+        
+        if (distance == 0) return 0f;
+        
+        normalized = normalized / distance;
         
         float noise = 0f;
         float amplitude = 1f;
         float frequency = noiseScale;
         
+        // Generate fractal noise using multiple octaves
         for (int i = 0; i < noiseOctaves; i++)
         {
-            noise += Mathf.PerlinNoise(
-                normalized.x * frequency + 42f,
-                normalized.z * frequency + 42f
-            ) * amplitude;
+            // Use spherical coordinates for seamless noise on sphere surface
+            float noiseX = normalized.x * frequency + 42f;
+            float noiseY = normalized.z * frequency + 42f; // Use Z for Y to avoid pole issues
             
-            amplitude *= 0.5f;
-            frequency *= 2f;
+            noise += Mathf.PerlinNoise(noiseX, noiseY) * amplitude;
+            
+            amplitude *= 0.5f; // Persistence
+            frequency *= 2f;   // Lacunarity
         }
         
-        return noise;
+        // Normalize noise to [-1, 1] range
+        return (noise - 0.5f) * 2f;
     }
     
-    private MeshData MarchingCubes(float[,,] sdf)
+    /// <summary>
+    /// Get spawn position for player (above planet surface)
+    /// </summary>
+    public Vector3 GetSpawnPosition()
     {
-        // Use SebLague's GPU-accelerated marching cubes
-        var marchingCubes = new MarchingCubes();
-        
-        // Convert 3D array to 1D array for compute shader
-        float[] points = new float[resolution * resolution * resolution];
-        int index = 0;
-        
-        for (int x = 0; x < resolution; x++)
+        return worldCenter + Vector3.up * (radius + terrainHeightScale + 20f);
+    }
+    
+    /// <summary>
+    /// Get planet information for other systems
+    /// </summary>
+    public PlanetInfo GetPlanetInfo()
+    {
+        return new PlanetInfo
         {
-            for (int y = 0; y < resolution; y++)
-            {
-                for (int z = 0; z < resolution; z++)
-                {
-                    points[index] = sdf[x, y, z];
-                    index++;
-                }
-            }
-        }
-        
-        // Generate mesh using SebLague's marching cubes
-        var mesh = marchingCubes.GenerateMesh(points, resolution, voxelSize);
-        
-        // Offset vertices to world position
-        Vector3[] vertices = mesh.vertices;
-        for (int i = 0; i < vertices.Length; i++)
-        {
-            vertices[i] += worldCenter - Vector3.one * (worldSize * 0.5f);
-        }
-        
-        Debug.Log($"SebLague Marching cubes generated: {vertices.Length} vertices, {mesh.triangles.Length / 3} triangles");
-        
-        return new MeshData
-        {
-            vertices = vertices,
-            triangles = mesh.triangles,
-            normals = mesh.normals
+            center = worldCenter,
+            radius = radius,
+            worldSize = worldSize,
+            spawnPosition = GetSpawnPosition()
         };
     }
 }
 
+/// <summary>
+/// Data structure for generated planet mesh
+/// </summary>
 [System.Serializable]
 public struct PlanetData
 {
@@ -159,9 +184,14 @@ public struct PlanetData
     public float radius;
 }
 
-public struct MeshData
+/// <summary>
+/// Planet information for other game systems
+/// </summary>
+[System.Serializable]
+public struct PlanetInfo
 {
-    public Vector3[] vertices;
-    public int[] triangles;
-    public Vector3[] normals;
+    public Vector3 center;
+    public float radius;
+    public float worldSize;
+    public Vector3 spawnPosition;
 }

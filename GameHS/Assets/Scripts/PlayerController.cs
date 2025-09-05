@@ -60,8 +60,8 @@ public class PlayerController : MonoBehaviour
         
         // Configure rigidbody
         rb.mass = 1f;
-        rb.drag = 2f;
-        rb.angularDrag = 5f;
+        rb.linearDamping = 2f;
+        rb.angularDamping = 5f;
         rb.useGravity = false; // We'll handle gravity ourselves
         rb.freezeRotation = true; // Prevent physics rotation
         
@@ -205,10 +205,10 @@ public class PlayerController : MonoBehaviour
             transform.position = correctedPosition;
             
             // Stop velocity going into planet
-            Vector3 velocityIntoPlanet = Vector3.Project(rb.velocity, -pushDirection);
+            Vector3 velocityIntoPlanet = Vector3.Project(rb.linearVelocity, -pushDirection);
             if (Vector3.Dot(velocityIntoPlanet, -pushDirection) > 0)
             {
-                rb.velocity -= velocityIntoPlanet;
+                rb.linearVelocity -= velocityIntoPlanet;
             }
             
             Debug.Log("⚠️ Prevented planet clipping - pushed player out");
@@ -256,7 +256,7 @@ public class PlayerController : MonoBehaviour
     
     // Public methods for debug display
     public Vector3 GetPosition() => transform.position;
-    public Vector3 GetVelocity() => rb.velocity;
+    public Vector3 GetVelocity() => rb.linearVelocity;
     public bool IsGrounded() => isGrounded;
     public float GetDistanceFromCenter() => Vector3.Distance(transform.position, planetCenter);
 }
